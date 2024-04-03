@@ -1,0 +1,49 @@
+syntax = "proto3";
+package xlb.v1;
+option go_package = "tcp-svc-train/entity";
+
+import "google/protobuf/timestamp.proto";
+
+enum Strategy {
+  RoundRobin = 0;
+  LeastConn = 1;
+}
+
+message Client {
+  string uuid = 1;
+  string key  = 2;
+  string name = 3;
+  google.protobuf.Timestamp createdAt = 10;
+}
+
+message FrontendTLSData {
+  string key = 2;
+  string certificate = 3;
+}
+
+message Frontend {
+  string   uuid     = 1;
+  bool     active   = 2;
+  Strategy strategy = 3;
+  int32    routeTimeoutSec = 4;
+  string   clientId  = 5;
+  string   accessKey = 6;
+  repeated FrontendRoute routes = 8;
+}
+
+message FrontendRoute {
+  string dest     = 1;
+  int32  capacity = 3;
+}
+
+message Backend {
+  string   uuid     = 1;
+  string   frontend = 2;
+  Strategy strategy = 3;
+}
+
+message BackendRoute {
+  string route    = 1;
+  int32  sessions = 2;
+  int64  totalSessions = 5;
+}
