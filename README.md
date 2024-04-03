@@ -1,13 +1,25 @@
 # XLB Proof of concept
 Proof of concept for load-balancer implementation
 
+# Requirements
+### General
+Implement a basic TCP load balancer. Load balancers are used to distribute network load across multiple hosts (or upstreams).
+
+### Technical
+- A reusable library implementing the functionality of the load balancer.
+- A server that exposes the library functionality while providing secure communication to clients and an authorization layer.
+
 # Goals
 Assemble full prototype of required components to route authenticated LB
 pass-through traffic
 
 This project should serve as a base source of connected components for the XLB project.
 
-No unit-tests available in this repository
+### Scopes
+- Only forwarding balancer method in this POC is [Round-Robin strategy](balancer/rrobin.strat.go)
+- Unit testing limited for POC, only available for [Round-Robin validation](balancer/rrobin.strat_test.go)
+- Database layer implemented with Badger to optimize testing of behaviors between optimizations
+- Certificate keys limited to RSA to reduce the research time
 
 # Prerequisites
 ### General TLS
