@@ -4,30 +4,18 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"github.com/rs/zerolog"
 	"github.com/xdire/xlb-poc/entity"
 	"github.com/xdire/xlb-poc/storage"
 	"github.com/xdire/xlb-poc/tlssec"
-	"log"
+	"net"
+	"os"
+	"strings"
 	"sync"
 )
 
 var mgrMtx sync.Mutex
 var singleton *Manager
-
-//type backend struct {
-//	routes []backendRoute
-//}
-//
-//type backendRoute struct {
-//	dialTo    string
-//	capacity  int
-//	util      int
-//	totalUtil int
-//}
-//
-//func newBackend(conn net.Listener, fe *entity.Frontend) {
-//
-//}
 
 type Manager struct {
 	mtx       sync.Mutex
@@ -93,22 +81,10 @@ func (mgr *Manager) RemoveFrontend(fe *entity.Frontend) error {
 	return nil
 }
 
-//func (mgr *Manager) runFrontend(ctx context.Context, fe *entity.Frontend) error {
-//	go func() {
-//
-//		be, err := NewBackend(fe, BackendOptions{})
-//		if err != nil {
-//			fmt.Printf("\ncannot instantiate backend")
-//		}
-//		err := be.Attach(listen)
-//		if err != nil {
-//			return
-//		}
-//
-//	}()
-//}
-
 func (mgr *Manager) runBalancer(ctx context.Context) {
+
+	log := zerolog.New(os.Stdout).Level(zerolog.InfoLevel)
+
 	config := &tls.Config{
 		Certificates: []tls.Certificate{mgr.tlsBundle.Certificate},
 		ClientAuth:   tls.RequireAndVerifyClientCert,
@@ -133,31 +109,57 @@ func (mgr *Manager) runBalancer(ctx context.Context) {
 		return
 	}
 
+	// Spawn the coroutine to watch for the context break
+	go func(l net.Listener) {
+		<-ctx.Done()
+		err := listen.Close()
+		fmt.Printf("\nbalance manager listener closing")
+		if err != nil {
+			fmt.Printf("\nerror closing balance manager listener: %v", err)
+		}
+	}(listen)
+
 	for {
 		// Accept the message
 		conn, err := listen.Accept()
 		if err != nil {
-			log.Printf("failed to accept connection: %v\n", err)
-			continue
+			if strings.Contains(err.Error(), "closed network") {
+				log.Err(err).Msg("closed")
+			}
+			log.Err(err).Msg("failed to accept connection")
+			return
 		}
 		tlsConn := conn.(*tls.Conn)
 		// Proceed with the handshake
 		err = tlsConn.Handshake()
 		if err != nil {
-			log.Printf("failed to complete handshake: %s\n", err)
+			log.Err(err).Msg("failed to complete handshake")
 			return
 		}
 		// Verify and find correct FE/BE
+		// TODO Verify presence/nil check and internal validity of certificate
 		certs := tlsConn.ConnectionState().PeerCertificates
 		curCrt := certs[0]
 		frontendAK := curCrt.Subject.CommonName
 		if fe, found := mgr.frontend[frontendAK]; found {
 			if be, bFound := mgr.backend[frontendAK]; bFound {
-				go be.Attach(tlsConn)
+				go func() {
+					err := be.Attach(tlsConn)
+					if err != nil {
+						log.Err(err).Msg("cannot attach to backend")
+					}
+				}()
 			} else {
-				newBe, _ := NewBackend(fe, BackendOptions{})
+				newBe, _ := NewBackend(fe, BackendOptions{
+					logLevel: zerolog.DebugLevel,
+				})
 				mgr.backend[fe.AccessKey] = newBe
-				go newBe.Attach(tlsConn)
+				go func() {
+					err := newBe.Attach(tlsConn)
+					if err != nil {
+						log.Err(err).Msg("cannot attach to backend")
+					}
+				}()
 			}
 		}
 	}

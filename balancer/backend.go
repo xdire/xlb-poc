@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"sync/atomic"
 	"time"
 )
 
@@ -49,7 +50,8 @@ func NewBackend(f *entity.Frontend, opt BackendOptions) (*Backend, error) {
 
 func (b *Backend) Attach(ch *tls.Conn) error {
 
-	errTransport := make(chan error)
+	errTransport := make(chan error, 2)
+	exitTransport := make(chan bool, 2)
 	defer func(ch net.Conn) {
 		err := ch.Close()
 		if err != nil {
@@ -65,19 +67,34 @@ func (b *Backend) Attach(ch *tls.Conn) error {
 		return err
 	}
 
+	running := uint32(0)
 	sendReceive := func(w io.Writer, r io.Reader) {
+		atomic.AddUint32(&running, 1)
 		_, err := io.Copy(w, r)
 		if err != nil {
 			errTransport <- err
 		}
+		exitTransport <- true
 	}
 
 	go sendReceive(conn, ch)
 	go sendReceive(ch, conn)
 
-	err = <-errTransport
-	if err != nil && err != io.EOF {
-		b.logger.Error().Err(err).Msg("backend channel closed with error")
+observability:
+	for {
+		select {
+		case err = <-errTransport:
+			if err != nil && err != io.EOF {
+				b.logger.Error().Err(err).Msg("backend channel closed with error")
+			}
+		case <-exitTransport:
+			val := atomic.AddUint32(&running, ^uint32(0))
+			b.logger.Debug().Msg("channel exited")
+			if val == 0 {
+				b.logger.Debug().Msg("connection closed successfully")
+				break observability
+			}
+		}
 	}
 
 	return nil
