@@ -1,6 +1,6 @@
 syntax = "proto3";
-package xlb.v1;
-option go_package = "tcp-svc-train/entity";
+package github.com.xdire.xlb.v1;
+option go_package = "github.com/xdire/entity";
 
 import "google/protobuf/timestamp.proto";
 
